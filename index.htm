@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>markdown_flask.py</title>
+<style>
+
+    pre {background: #bbb;padding:1em;}
+    code {background: #bbb;padding-left:0.2em;padding-right:0.2em;}
+    blockquote {background: #bbb;padding:1em;}
+
+    
+pre {white-space:pre-line;} /*works on desktop not on android*/
+pre {white-space:pre-wrap;word-wrap: break-word;} /*works on desktop, STILL not on android*/
+pre {white-space:pre-wrap;word-wrap: break-space;} /*works on desktop, STILL not on android*/
+p{
+    margin-bottom:1px;
+    margin-top:1px;
+
+}
+.the_flex {
+    display: flex;
+    flex-flow: row wrap;
+    justify-content: center;
+}
+.flex_item {
+    background:#eee;
+    width:350px;
+    height:450px;
+    position: relative;
+}
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    height: 100%;
+}
+.no_icon { background:#ddd;}
+.title {
+    position: absolute;
+    font-family:monospace;
+    /*font-size:0.75em;*/
+    font-weight: bold;
+    word-break: break-word;
+    width:220px;
+    height:250px;
+
+    padding:0;
+    margin:0;
+
+    left:4px;
+    top: 4px;
+
+    text-shadow:
+        white 0px 0px 3px,
+        white 0px 0px 3px,
+        white 0px 0px 3px,
+        white 0px 0px 3px,
+        white 0px 0px 3px,
+        white 0px 0px 3px,
+        white 0px 0px 3px;
+    }
+img.squary {
+    max-width:100%;
+    max-height:100%;
+    padding:0;
+    margin:0;
+    image-rendering: crisp-edges;
+}
+.this_one {
+    border: 2px solid red;
+}
+table { border-collapse:collapse;}
+table tr td {
+    border-left: solid 1px #888;
+    border-right: solid 1px #888;
+
+    border-top: solid 1px #eee;
+    border-bottom: solid 1px #eee;
+    padding-left:5px;
+    padding-right:5px;
+    }
+table tr:hover { background-color:#ddd; }
+body{margin:1em;}
+.title2 {font-size:150%; font-weight:bold;}
+
+
+/* ADDED FOR MARKDOWN FLASK */
+
+body {width:50em; margin:3em;}
+ul { list-style-type: square; }
+table {border-collapse:collapse;}
+tr td, tr th {border-left: 1px solid #888; padding:3px 15px 3px 15px;}
+img {max-width:90%; border: solid 3px black;}
+
+
+    
+</style>
+</head>
+
+<body>
+<h1>How to parse a C-like language with lexy</h1>
+<h2>Introduction: what is the difference between a parser combinator and a parser generator?</h2>
+<p>Parsing is not easy.</p>
+<h3>What is parsing?</h3>
+<p>Parsing is (on average) building a parse tree from a text input. When
+ one wants to build a programming language, parsing is usually called 
+the front-end. The backend can be many other things: outputting an 
+executable, using JIT, intermediate representation, web assembly, 
+executing your program directly with an interpreter, or compiling it 
+into a bytecode format... this article will only cover 
+front-end/parsing.</p>
+<h3>What is a parser generator?</h3>
+<p>A parser generator will output a source code which will be your 
+parser. Parser generators are usually popular (example: ANTLR), but they
+ are a bit complicated to use in practice.</p>
+<h3>What is a parser combinator?</h3>
+<p>A parser combinator is given a grammar (usually BNF or eBNF or 
+variants) and a text input, and will output a parse tree directly.</p>
+<p>Parser combinators are simpler to use in general, but handling BNF grammars is not trivial and not optimal.</p>
+<h3>What is lexy?</h3>
+<p>Lexy is a parser combinator, but it doesn't use a grammar format like
+ BNF: instead, the grammar is written in C++ directly, with templates. A
+ big advantage is performance.</p>
+<p>Its author explained Lexy in a 1hr zoom presentation, and also provides extensive tutorials and documentation.</p>
+<hr>
+
+<h2>What sort of language are you parsing?</h2>
+<p>I had quite an atypical project:</p>
+<ul>
+<li>
+<p>A "cousin" of C in terms of semantics</p>
+</li>
+<li>
+<p>python indentation</p>
+</li>
+<li>
+<p>"quality of life" things like a string type, list, dict/hash table, vector2/3/matrix, and other things that are lacking in C</p>
+</li>
+<li>
+<p>compile that language to C:</p>
+<ul>
+<li>
+<p>this is what Typescript/cppfront/Nim are doing: the output is C code in this case</p>
+</li>
+<li>
+<p>I target video game programming, so performance is a concern.</p>
+</li>
+<li>
+<p>C is fast enough to compile</p>
+</li>
+<li>
+<p>I had no ambition to get involved with a backend: C is "good enough",
+ and it allows to easily reuse other existing C code, which is a bonus.</p>
+</li>
+<li>
+<p>C semantics are "known territory", I don't want to innovate, I aim 
+for a "conservative" language. In my mind this would improve adoption.</p>
+</li>
+</ul>
+</li>
+</ul>
+<p>Important note: I did not finish this project, I only use lexy for parsing.</p>
+<hr>
+
+<h2>Python indentation</h2>
+<p>Python indentation cannot be parsed by a parser combinator, because it is not context-free.</p>
+<p>Solving this problem is trivial enough: generate indent, dedent and new line tokens with python code:</p>
+<pre><code>for (diffprev, diffnext, line, spaces) in lines:
+    lines_tokens.append((
+        line,
+        diffprev, diffnext,
+        1 if diffprev == 1 else 0, # indent
+        diffnext if diffnext else 0, # dedent
+        spaces,
+        diffnext &gt;= 0
+        # True
+            if diffnext != None and line
+            else False, # endline
+        ))
+
+</code></pre>
+<p><a href="https://github.com/jokoon/clak/blob/main/indentoken.py">Full indent module</a></p>
+<p>This transforms the left side into the right side:</p>
+<pre><code>if nope:                             ➡️   if nope:
+    hum = cally(1,2)                 ➡️   __INDENT__
+    duh = (43, fcall(2.4,(abc, 5)))  ➡️       hum = cally(1,2) __ENDLINE__
+    while 1:                         ➡️       duh = (43, fcall(2.4,(abc, 5))) __ENDLINE__
+        break                        ➡️       while 1:
+                                     ➡️       __INDENT__
+    return 32+2*4                    ➡️           break __ENDLINE__
+                                     ➡️
+                                     ➡️       __DEDENT__
+                                     ➡️       return 32+2*4 __ENDLINE__
+                                     ➡️
+                                     ➡️   __DEDENT__
+</code></pre>
+<p>I am planning to rewrite this part in C++.</p>
+<hr>
+
+<h2>Lexy grammar</h2>
+<h3>How does lexy work?</h3>
+<p>There are several core concepts in lexy:</p>
+<ul>
+<li>rule</li>
+<li>value</li>
+<li>production</li>
+<li>branch</li>
+</ul>
+<p>To quote the tutorial:</p>
+<blockquote>
+<p>A grammar consists of productions. Each production defines a rule, 
+which controls what is being parsed, and produces a value. In lexy, 
+productions are structs with a static constexpr member called rule. The 
+rule is defined by the DSL: lexy provides simple rules that can be 
+composed to parse more complex things. A grammar consists of multiple of
+ those structs; [...]</p>
+</blockquote>
+<p>Again, I recommend to read the tutorial, and play around with the repl, which allows to test lexy without compiling it.</p>
+<h3>The grammar</h3>
+<p>Right now, my grammar fits in about <a href="https://github.com/jokoon/clak/blob/main/clak.cpp">350 lines</a>:</p>
+<h3>floats and ints</h3>
+<p>Lexy cannot differentiate floating points from integer out-of-the-box: <code>.0</code>, <code>0.</code> and <code>0.0</code> are problematic. To remedy this, a number rule is introduced to differentiate.</p>
+<h3>expressions</h3>
+<p>Expressions are common constructs in programming languages. Lexy has <code>lexy::expression_production</code> which does one part of the job:</p>
+<pre><code>struct expression : lexy::expression_production {
+</code></pre>
+<h3>parenthesized expressions</h3>
+<p>Since I like python, I want to parse tuples and translate them as 
+structs. The idea is weird and my language doesn't work yet, but I can 
+still parse those parenthesized expression if I want to!</p>
+<pre><code>struct expression : lexy::expression_production {
+    struct paren_expr {
+        static constexpr auto rule =
+            dsl::parenthesized.list(dsl::p&lt;struct expression&gt;, dsl::sep(dsl::comma));
+    };
+</code></pre>
+<h3>atom</h3>
+<p>The atom is how the expression will be parsed. p&lt;&gt; means production:</p>
+<pre><code>static constexpr auto atom = [] {
+    return
+        dsl::p&lt;paren_expr&gt;
+        | dsl::p&lt;identifier&gt;
+        | dsl::p&lt;string_literal&gt;
+        | dsl::p&lt;number&gt;
+        | dsl::error&lt;expected_operand&gt;;
+}();
+</code></pre>
+<h3>differentiate between functions and tuples</h3>
+<p>Function and tuples are similar: <code>(1,3)</code> is a tuple, but <code>thing(1,3)</code> is a function call. To differentiate, we use a <code>dsl::postfix_op</code> and a <code>prefix : dsl::prefix_op</code>:</p>
+<pre><code>struct call : dsl::postfix_op {
+    static constexpr auto op = dsl::op(
+        dsl::parenthesized.list(dsl::p&lt;struct expression&gt;, dsl::sep(dsl::comma)));
+    using operand = dsl::atom;
+};
+
+struct prefix : dsl::prefix_op {
+    static constexpr auto op = dsl::op(dsl::lit_c&lt;'-'&gt;);
+    using operand = call;
+};
+</code></pre>
+<h3>math operators</h3>
+<p>What comes next is just a suite of the common math operators, with their precedence: <code>product</code> <code>sum</code> <code>bit_shift</code> <code>inequality</code> <code>equality</code> <code>bit_and</code> <code>bit_xor</code> <code>bit_or</code> <code>bool_and</code> <code>bool_or</code> <code>equal</code>.</p>
+<h3>statements</h3>
+<p>Remember the indent and dedent tokens? Here they are:</p>
+<pre><code>struct compound_stmt {
+    static constexpr auto rule =
+        lexy::dsl::brackets(LEXY_LIT("__INDENT__"),
+            LEXY_LIT("__DEDENT__")).list(dsl::recurse&lt;statement&gt;);
+};
+</code></pre>
+<p>C semantics have this particularity between statements and expression, so there is the "expression statement":</p>
+<pre><code>struct expression_stmt {
+    static constexpr auto rule =
+        dsl::p&lt;expression&gt; +LEXY_LIT("__ENDLINE__");
+};
+</code></pre>
+<p>Combining statements:</p>
+<pre><code>struct statement {
+    static constexpr auto whitespace = dsl::ascii::space;
+    static constexpr auto rule =
+        dsl::p&lt;compound_stmt&gt;
+        | dsl::p&lt;if_stmt&gt;
+        | dsl::p&lt;while_stmt&gt;
+        | dsl::p&lt;for_stmt&gt;
+        | dsl::p&lt;jump_stmt&gt;
+        | dsl::else_ &gt;&gt; dsl::p&lt;expression_stmt&gt;
+        ;
+};
+
+</code></pre>
+<p>And we're done! That is the grammar!</p>
+<p>Of course, you can look at the code for the full grammar.</p>
+<h2>The parse tree</h2>
+<p>That code:</p>
+<pre><code>func sunrungunbunpunfunjunction(roubidou:char, i: int) (float, char):
+    if nope:
+        hum = cally(1,2)
+        duh = (43, fcall(2.4,(abc, 5)))
+    while 1:
+        continue
+        return
+        return 32-2*4%3
+</code></pre>
+<p>The code is gibberish and makes no sense: all we did is parse it, but
+ I want to use a C compiler as a backend, so for now, it doesn't matter.</p>
+<p>Lexy doesn't output to json, so I wrote some code to output json. I 
+added a step to make it a bit more compact, but it still has 17 times as
+ many line as the original source:</p>
+<pre><code>{
+ "func_decl": [{
+   "func_signature": [
+    "func",
+    {
+     "identifier": [
+      "sunrungunbunpunfunjunction"
+     ]},
+    {
+     "func_args": [{
+       "decl_ltr": [{
+         "identifier": [
+          "roubidou"
+         ]},
+        {
+         "base_type": [
+          "char"
+         ]}]},
+      {
+       "decl_ltr": [{
+         "identifier": [
+          "i"
+         ]},
+        {
+         "base_type": [
+          "int"
+         ]}]}]},
+    {
+     "return_values": [{
+       "base_type": [
+        "float"
+       ]},
+      {
+       "base_type": [
+        "char"
+       ]}]}]},
+  {
+   "compound_stmt": [{
+     "statement": [{
+       "if_stmt": [
+        "if",
+        {
+         "expression": [{
+           "identifier": [
+            "nope"
+           ]}]},
+        {
+         "compound_stmt": [{
+           "statement": [{
+             "expression_stmt": [{
+               "expression": [{
+                 "expression::equal": [{
+                   "identifier": [
+                    "hum"
+                   ]},
+                  "=",
+                  {
+                   "expression::call": [{
+                     "identifier": [
+                      "cally"
+                     ]},
+                    {
+                     "expression": [{
+                       "number": [
+                        "1"
+                       ]}]},
+                    {
+                     "expression": [{
+                       "number": [
+                        "2"
+                       ]}]}]}]}]}]}]},
+          {
+           "statement": [{
+             "expression_stmt": [{
+               "expression": [{
+                 "expression::equal": [{
+                   "identifier": [
+                    "duh"
+                   ]},
+                  "=",
+                  {
+                   "expression::paren_expr": [{
+                     "expression": [{
+                       "number": [
+                        "43"
+                       ]}]},
+                    {
+                     "expression": [{
+                       "expression::call": [{
+                         "identifier": [
+                          "fcall"
+                         ]},
+                        {
+                         "expression": [{
+                           "number": [
+                            "2",
+                            ".",
+                            "4"
+                           ]}]},
+                        {
+                         "expression": [{
+                           "expression::paren_expr": [{
+                             "expression": [{
+                               "identifier": [
+                                "abc"
+                               ]}]},
+                            {
+                             "expression": [{
+                               "number": [
+                                "5"
+                               ]}]}]}]}]}]}]}]}]}]}]}]}]}]},
+    {
+     "statement": [{
+       "while_stmt": [
+        "while",
+        {
+         "expression": [{
+           "number": [
+            "1"
+           ]}]},
+        {
+         "compound_stmt": [{
+           "statement": [{
+             "jump_stmt": [{
+               "continue_stmt": [
+                "continue"
+               ]}]}]},
+          {
+           "statement": [{
+             "jump_stmt": [{
+               "return_stmt_value": [
+                "return"
+               ]}]}]},
+          {
+           "statement": [{
+             "jump_stmt": [{
+               "return_stmt_value": [
+                "return",
+                {
+                 "expression": [{
+                   "expression::sum": [{
+                     "number": [
+                      "32"
+                     ]},
+                    "-",
+                    {
+                     "expression::product": [{
+                       "expression::product": [{
+                         "number": [
+                          "2"
+                         ]},
+                        "*",
+                        {
+                         "number": [
+                          "4"
+                         ]}]},
+                      "%",
+                      {
+                       "number": [
+                        "3"
+                       ]}]}]}]}]}]}]}]}]}]}]}]}
+</code></pre>
+<h2>Walking the parse with python 3.10's new <code>match case</code></h2>
+<p>Python 3.10 adds a match-case syntax, which is quite useful for walking a parse tree.</p>
+<p><a href="https://peps.python.org/pep-0636/">PEP 636 – Structural Pattern Matching: Tutorial</a></p>
+<p>For example, here is how we match func_signature:</p>
+<pre><code>match entry:
+    case {'func_signature':['func', idtf, func_args, return_values]}:
+        walk(return_values)
+        walk(idtf)
+        walk(func_args)
+</code></pre>
+<p><a href="https://github.com/jokoon/clak/blob/main/clak_ast.py">parse tree walker</a></p>
+<p>It generates this output, which looks a bit more like C code, but we are not there yet!</p>
+<pre><code>sunrungunbunpunfunjunctionroubidou char;i int;{
+  if(nope) {
+    hum=cally(1, 2);
+    duh=(43, fcall(2.4, (abc, 5)));
+  }
+  while(1) {
+    continue;
+    return;
+    return 32-2*4%3;
+  }
+}
+
+</code></pre>
+<script type="text/javascript">
+window.onload = function(){
+    makeRequest('/list', function(st, resp){
+        // console.log(st, resp);
+        if (st == 200){
+            selected = JSON.parse(resp);
+            console.log("got", selected.length, "selected stuffies");
+            make_tooltips();
+        }
+    });
+}
+    window.onload = function(){
+        const getCellValue = (tr, idx) => tr.children[idx].innerText || tr.children[idx].textContent;
+
+        const comparer = (idx, asc) => (a, b) => ((v1, v2) =>
+            v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+            )(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx));
+
+        // do the work...
+        document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {
+            const table = th.closest('table');
+            Array.from(table.querySelectorAll('tr:nth-child(n+2)'))
+                .sort(comparer(Array.from(th.parentNode.children).indexOf(th), this.asc = !this.asc))
+                .forEach(tr => table.appendChild(tr) );
+        })));
+    };
+
+
+</script>
+<!-- <div id="REPLACE_THIS"></div> -->
+
+
+    </body></html>
